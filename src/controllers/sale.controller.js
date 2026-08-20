@@ -28,8 +28,27 @@ const get = asyncHandler(async (req, res) => {
   });
 });
 
+const update = asyncHandler(async (req, res) => {
+  const data = await saleService.updateSale(req.params.id, req.body);
+  return sendSuccess(res, {
+    message: "Sale updated successfully",
+    data,
+  });
+});
+
+const cancel = asyncHandler(async (req, res) => {
+  const data = await saleService.cancelSale(req.params.id);
+
+  return sendSuccess(res, {
+    message: "Sale cancelled successfully",
+    data,
+  });
+});
+
 module.exports = {
   list,
   create,
   get,
+  update,
+  cancel,
 };
