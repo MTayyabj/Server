@@ -17,6 +17,13 @@ router
     cashBankController.createManualCashEntry
   );
 
+router.put(
+  "/cash-book/:id",
+  authorize(...staff),
+  validate(cashBankValidators.updateCashEntry),
+  cashBankController.updateManualCashEntry
+);
+
 router
   .route("/bank-accounts")
   .get(cashBankController.listBankAccounts)
@@ -25,6 +32,13 @@ router
     validate(cashBankValidators.createBankAccount),
     cashBankController.createBankAccount
   );
+
+router.put(
+  "/bank-accounts/:id",
+  authorize(...management),
+  validate(cashBankValidators.updateBankAccount),
+  cashBankController.updateBankAccount
+);
 
 router.post(
   "/bank-accounts/transfer",
@@ -37,6 +51,13 @@ router.get(
   "/bank-accounts/:id/ledger",
   validate(cashBankValidators.bankLedger),
   cashBankController.bankLedger
+);
+
+router.put(
+  "/bank-accounts/:id/ledger/:transactionId",
+  authorize(...management),
+  validate(cashBankValidators.updateBankTransaction),
+  cashBankController.updateBankTransaction
 );
 
 router.delete(
