@@ -1,6 +1,6 @@
 const { Supplier, SupplierLedger } = require("../models");
 const { withTransaction } = require("../utils/transactions");
-const { NotFoundError } = require("../utils/appError");
+const { BadRequestError, NotFoundError } = require("../utils/appError");
 const { toMoney, addMoney, subtractMoney } = require("../utils/money");
 const { getPagination, buildPaginationMeta } = require("../utils/pagination");
 const { buildSearchRegex } = require("../utils/query");
@@ -229,6 +229,98 @@ const addLedgerEntry = async (id, payload) =>
     return ledger;
   });
 
+const updateLedgerEntry = async (supplierId, entryId, payload) =>
+  withTransaction(async (session) => {
+    const supplier = await findSupplierOrFail(supplierId, session);
+    const entry = await SupplierLedger.findOne({
+      _id: entryId,
+      supplier_id: supplierId,
+    }).session(session);
+
+    if (!entry) {
+      throw new NotFoundError("Ledger entry not found.");
+    }
+
+    if (entry.ref_type !== "SUPPLIER_MANUAL") {
+      throw new BadRequestError("Only manual ledger entries can be edited.");
+    }
+
+    if (payload.date !== undefined) {
+      entry.date = payload.date;
+    }
+
+    if (payload.description !== undefined) {
+      entry.description = payload.description;
+    }
+
+    const debit = payload.debit !== undefined ? toMoney(payload.debit) : toMoney(entry.debit);
+    const credit = payload.credit !== undefined ? toMoney(payload.credit) : toMoney(entry.credit);
+    const paymentMethod = payload.payment_method ?? entry.payment_method;
+    const bankAccountId = payload.bank_account_id ?? entry.bank_account_id;
+
+    if (debit === 0 && credit === 0) {
+      throw new BadRequestError("Debit or credit amount is required.");
+    }
+
+    if (debit > 0 && credit > 0) {
+      throw new BadRequestError("Use either debit or credit for a manual ledger entry.");
+    }
+
+    if (paymentMethod === "bank" && !bankAccountId) {
+      throw new BadRequestError("Bank account is required for bank ledger entries.");
+    }
+
+    entry.debit = debit;
+    entry.credit = credit;
+    entry.payment_method = paymentMethod;
+    entry.bank_account_id = paymentMethod === "bank" ? bankAccountId : undefined;
+    await entry.save({ session });
+
+    const balance = await accounting.recalculateSupplierLedgerBalances(supplierId, session);
+    supplier.current_balance = balance;
+    await supplier.save({ session });
+
+    if (paymentMethod === "cash") {
+      await accounting.replaceCashPayment({
+        date: entry.date,
+        description: entry.description,
+        cash_in: credit,
+        cash_out: debit,
+        ref_type: "SUPPLIER_LEDGER",
+        ref_id: entry._id,
+        session,
+      });
+    } else if (paymentMethod === "bank") {
+      await accounting.replaceBankPayment({
+        bank_account_id: bankAccountId,
+        date: entry.date,
+        description: entry.description,
+        deposit: credit,
+        withdrawal: debit,
+        ref_type: "SUPPLIER_LEDGER",
+        ref_id: entry._id,
+        session,
+      });
+    } else {
+      const cashEntries = await accounting.findCashByRef("SUPPLIER_LEDGER", entry._id, session);
+      const bankEntries = await accounting.findBankByRef("SUPPLIER_LEDGER", entry._id, session);
+      await accounting.removeCashEntries(await cashEntries, session);
+      await accounting.removeBankEntries(await bankEntries, session);
+    }
+
+    await accounting.replaceDailyBookEntry({
+      date: entry.date,
+      description: entry.description,
+      debit,
+      credit,
+      ref_type: "SUPPLIER_LEDGER",
+      ref_id: entry._id,
+      session,
+    });
+
+    return entry;
+  });
+
 module.exports = {
   listSuppliers,
   createSupplier,
@@ -237,4 +329,5 @@ module.exports = {
   deleteSupplier,
   getLedger,
   addLedgerEntry,
+  updateLedgerEntry,
 };
