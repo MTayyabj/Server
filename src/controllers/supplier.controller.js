@@ -62,6 +62,18 @@ const addLedgerEntry = asyncHandler(async (req, res) => {
   });
 });
 
+const updateLedgerEntry = asyncHandler(async (req, res) => {
+  const data = await supplierService.updateLedgerEntry(
+    req.params.id,
+    req.params.entryId,
+    req.body
+  );
+  return sendSuccess(res, {
+    message: "Supplier ledger entry updated successfully",
+    data,
+  });
+});
+
 module.exports = {
   list,
   create,
@@ -70,4 +82,5 @@ module.exports = {
   remove,
   ledger,
   addLedgerEntry,
+  updateLedgerEntry,
 };
