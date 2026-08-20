@@ -82,10 +82,54 @@ const ledgerEntry = {
     }),
 };
 
+const ledgerEntryParams = z.object({
+  id: objectId,
+  entryId: objectId,
+});
+
+const updateLedgerEntry = {
+  params: ledgerEntryParams,
+  body: z
+    .object({
+      date: z.coerce.date().optional(),
+      description: nonEmptyString.max(300).optional(),
+      debit: money.optional(),
+      credit: money.optional(),
+      payment_method: paymentMethod.optional(),
+      bank_account_id: objectId.optional(),
+    })
+    .superRefine((data, ctx) => {
+      if (Object.keys(data).length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: [],
+          message: "At least one field is required.",
+        });
+      }
+
+      if (data.debit !== undefined && data.credit !== undefined && data.debit > 0 && data.credit > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["credit"],
+          message: "Use either debit or credit for a manual ledger entry.",
+        });
+      }
+
+      if (data.payment_method === "bank" && !data.bank_account_id) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["bank_account_id"],
+          message: "Bank account is required for bank ledger entries.",
+        });
+      }
+    }),
+};
+
 module.exports = {
   list,
   create,
   update,
   ledgerList,
   ledgerEntry,
+  updateLedgerEntry,
 };
