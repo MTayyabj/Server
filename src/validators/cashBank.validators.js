@@ -120,12 +120,55 @@ const updateBankAccountStatus = {
   }),
 };
 
+const updateBankAccount = {
+  params: idParams,
+  body: z
+    .object({
+      bank_name: nonEmptyString.max(120).optional(),
+      title: nonEmptyString.max(120).optional(),
+      account_number: nonEmptyString.max(80).optional(),
+    })
+    .refine((data) => Object.keys(data).length > 0, "At least one field is required."),
+};
+
+const updateCashEntry = {
+  params: idParams,
+  body: z
+    .object({
+      date: z.coerce.date().optional(),
+      description: nonEmptyString.max(300).optional(),
+      cash_in: z.coerce.number().finite().min(0).optional(),
+      cash_out: z.coerce.number().finite().min(0).optional(),
+    })
+    .refine((data) => Object.keys(data).length > 0, "At least one field is required."),
+};
+
+const bankTransactionParams = z.object({
+  id: objectId,
+  transactionId: objectId,
+});
+
+const updateBankTransaction = {
+  params: bankTransactionParams,
+  body: z
+    .object({
+      date: z.coerce.date().optional(),
+      description: nonEmptyString.max(300).optional(),
+      deposit: z.coerce.number().finite().min(0).optional(),
+      withdrawal: z.coerce.number().finite().min(0).optional(),
+    })
+    .refine((data) => Object.keys(data).length > 0, "At least one field is required."),
+};
+
 module.exports = {
   cashBookList,
   manualCash,
   createBankAccount,
   deleteBankAccount,
   updateBankAccountStatus,
+  updateBankAccount,
+  updateCashEntry,
+  updateBankTransaction,
   transfer,
   bankLedger,
 };
