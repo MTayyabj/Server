@@ -5,13 +5,35 @@ const { authorize } = require("../middlewares/auth.middleware");
 const saleValidators = require("../validators/sale.validators");
 
 const router = express.Router();
+
 const staff = ["admin", "manager", "cashier"];
 
 router
   .route("/")
   .get(validate(saleValidators.list), saleController.list)
-  .post(authorize(...staff), validate(saleValidators.create), saleController.create);
+  .post(
+    authorize(...staff),
+    validate(saleValidators.create),
+    saleController.create
+  );
 
-router.get("/:id", validate(saleValidators.id), saleController.get);
+router
+  .route("/:id")
+  .get(
+    validate(saleValidators.id),
+    saleController.get
+  )
+  .put(
+    authorize(...staff),
+    validate(saleValidators.update),
+    saleController.update
+  );
+
+router.patch(
+  "/:id/cancel",
+  authorize(...staff),
+  validate(saleValidators.id),
+  saleController.cancel
+);
 
 module.exports = router;
