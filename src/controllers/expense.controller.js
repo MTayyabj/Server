@@ -47,10 +47,19 @@ const deleteExpense = asyncHandler(async (req, res) => {
   });
 });
 
+const update = asyncHandler(async (req, res) => {
+  const data = await expenseService.updateExpense(req.params.id, req.body);
+  return sendSuccess(res, {
+    message: "Expense updated successfully",
+    data,
+  });
+});
+
 module.exports = {
   list,
   create,
   listCategories,
   createCategory,
   deleteExpense,
+  update,
 };
