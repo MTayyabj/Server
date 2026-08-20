@@ -28,4 +28,11 @@ router
     supplierController.addLedgerEntry
   );
 
+router.put(
+  "/:id/ledger/:entryId",
+  authorize(...management),
+  validate(supplierValidators.updateLedgerEntry),
+  supplierController.updateLedgerEntry
+);
+
 module.exports = router;
