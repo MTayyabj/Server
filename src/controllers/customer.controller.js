@@ -1,3 +1,4 @@
+
 const customerService = require("../services/customer.service");
 const asyncHandler = require("../utils/asyncHandler");
 const { sendSuccess } = require("../utils/apiResponse");
@@ -62,6 +63,18 @@ const addLedgerEntry = asyncHandler(async (req, res) => {
   });
 });
 
+const updateLedgerEntry = asyncHandler(async (req, res) => {
+  const data = await customerService.updateLedgerEntry(
+    req.params.id,
+    req.params.entryId,
+    req.body
+  );
+  return sendSuccess(res, {
+    message: "Customer ledger entry updated successfully",
+    data,
+  });
+});
+
 module.exports = {
   list,
   create,
@@ -70,4 +83,5 @@ module.exports = {
   remove,
   ledger,
   addLedgerEntry,
+  updateLedgerEntry,
 };
