@@ -1,6 +1,6 @@
 const { Expense, ExpenseCategory } = require("../models");
 const { withTransaction } = require("../utils/transactions");
-const { NotFoundError } = require("../utils/appError");
+const { BadRequestError, NotFoundError } = require("../utils/appError");
 const { toMoney } = require("../utils/money");
 const { getPagination, buildPaginationMeta } = require("../utils/pagination");
 const { getDateRange } = require("../utils/dateRange");
@@ -131,7 +131,7 @@ const createExpense = async (payload) =>
       .session(session);
   });
 
-  const deleteExpense = async (id) =>
+const deleteExpense = async (id) =>
   withTransaction(async (session) => {
     const expense = await Expense.findById(id).session(session);
 
@@ -180,6 +180,91 @@ const createExpense = async (payload) =>
     return expense;
   });
 
+const updateExpense = async (id, payload) =>
+  withTransaction(async (session) => {
+    const expense = await Expense.findById(id).session(session);
+
+    if (!expense) {
+      throw new NotFoundError("Expense not found.");
+    }
+
+    if (payload.category_id) {
+      const category = await ExpenseCategory.findById(payload.category_id).session(session);
+
+      if (!category) {
+        throw new NotFoundError("Expense category not found.");
+      }
+
+      expense.category_id = payload.category_id;
+    }
+
+    if (payload.description !== undefined) {
+      expense.description = payload.description;
+    }
+
+    if (payload.date !== undefined) {
+      expense.date = payload.date;
+    }
+
+    if (payload.amount !== undefined) {
+      expense.amount = toMoney(payload.amount);
+    }
+
+    if (payload.payment_method !== undefined) {
+      expense.payment_method = payload.payment_method;
+    }
+
+    if (payload.bank_account_id !== undefined) {
+      expense.bank_account_id = payload.bank_account_id;
+    }
+
+    if (expense.payment_method === "bank" && !expense.bank_account_id) {
+      throw new BadRequestError("Bank account is required for bank expenses.");
+    }
+
+    if (expense.payment_method === "cash") {
+      expense.bank_account_id = undefined;
+    }
+
+    await expense.save({ session });
+
+    if (expense.payment_method === "cash") {
+      await accounting.replaceCashPayment({
+        date: expense.date,
+        description: expense.description,
+        cash_out: expense.amount,
+        ref_type: "EXPENSE",
+        ref_id: expense._id,
+        session,
+      });
+    } else {
+      await accounting.replaceBankPayment({
+        bank_account_id: expense.bank_account_id,
+        date: expense.date,
+        description: expense.description,
+        withdrawal: expense.amount,
+        ref_type: "EXPENSE",
+        ref_id: expense._id,
+        session,
+      });
+    }
+
+    await accounting.replaceDailyBookEntry({
+      date: expense.date,
+      description: expense.description,
+      debit: 0,
+      credit: expense.amount,
+      ref_type: "EXPENSE",
+      ref_id: expense._id,
+      session,
+    });
+
+    return Expense.findById(expense._id)
+      .populate("category_id", "name")
+      .populate("bank_account_id", "bank_name account_number")
+      .session(session);
+  });
+
 const listCategories = async () => ExpenseCategory.find().sort({ name: 1 });
 
 const createCategory = async (payload) => ExpenseCategory.create(payload);
@@ -190,4 +275,5 @@ module.exports = {
   listCategories,
   createCategory,
   deleteExpense,
+  updateExpense,
 };
