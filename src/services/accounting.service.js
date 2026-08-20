@@ -8,6 +8,7 @@ const { BadRequestError, NotFoundError } = require("../utils/appError");
 const { toMoney, addMoney, subtractMoney } = require("../utils/money");
 
 const sortLatest = { date: -1, created_at: -1 };
+const sortChronological = { date: 1, created_at: 1 };
 
 const getLatestCashBalance = async (session) => {
   const latest = await CashBook.findOne().sort(sortLatest).session(session);
@@ -229,6 +230,237 @@ const postPayments = async ({
   return entries;
 };
 
+const recalculateCashBalances = async (session) => {
+  const entries = await CashBook.find().sort(sortChronological).session(session);
+  let balance = 0;
+
+  for (const entry of entries) {
+    balance = subtractMoney(addMoney(balance, entry.cash_in), entry.cash_out);
+
+    if (entry.running_balance !== balance) {
+      entry.running_balance = balance;
+      await entry.save({ session });
+    }
+  }
+
+  return balance;
+};
+
+const recalculateBankBalances = async (bankAccountId, session) => {
+  const account = await BankAccount.findById(bankAccountId).session(session);
+
+  if (!account) {
+    throw new NotFoundError("Bank account not found.");
+  }
+
+  const entries = await BankTransaction.find({ bank_account_id: bankAccountId })
+    .sort(sortChronological)
+    .session(session);
+  let balance = 0;
+
+  for (const entry of entries) {
+    balance = subtractMoney(addMoney(balance, entry.deposit), entry.withdrawal);
+
+    if (entry.running_balance !== balance) {
+      entry.running_balance = balance;
+      await entry.save({ session });
+    }
+  }
+
+  account.current_balance = balance;
+  await account.save({ session });
+
+  return balance;
+};
+
+const recalculateDailyBookBalances = async (session) => {
+  const entries = await DailyBook.find().sort(sortChronological).session(session);
+  let balance = 0;
+
+  for (const entry of entries) {
+    balance = subtractMoney(addMoney(balance, entry.debit), entry.credit);
+
+    if (entry.running_balance !== balance) {
+      entry.running_balance = balance;
+      await entry.save({ session });
+    }
+  }
+
+  return balance;
+};
+
+const findCashByRef = (ref_type, ref_id, session) =>
+  CashBook.find({ ref_type, ref_id }).sort(sortChronological).session(session);
+
+const findBankByRef = (ref_type, ref_id, session) =>
+  BankTransaction.find({ ref_type, ref_id }).sort(sortChronological).session(session);
+
+const findDailyBookByRef = (ref_type, ref_id, session) =>
+  DailyBook.find({ ref_type, ref_id }).sort(sortChronological).session(session);
+
+const removeCashEntries = async (entries, session) => {
+  if (!entries.length) return;
+
+  await CashBook.deleteMany(
+    { _id: { $in: entries.map((entry) => entry._id) } },
+    { session }
+  );
+  await recalculateCashBalances(session);
+};
+
+const removeBankEntries = async (entries, session) => {
+  const accountIds = [...new Set(entries.map((entry) => entry.bank_account_id.toString()))];
+
+  await BankTransaction.deleteMany(
+    { _id: { $in: entries.map((entry) => entry._id) } },
+    { session }
+  );
+
+  for (const accountId of accountIds) {
+    await recalculateBankBalances(accountId, session);
+  }
+};
+
+const removeDailyBookEntries = async (entries, session) => {
+  if (!entries.length) return;
+
+  await DailyBook.deleteMany(
+    { _id: { $in: entries.map((entry) => entry._id) } },
+    { session }
+  );
+  await recalculateDailyBookBalances(session);
+};
+
+const replaceCashPayment = async ({
+  ref_type,
+  ref_id,
+  date,
+  description,
+  cash_in = 0,
+  cash_out = 0,
+  session,
+}) => {
+  const existing = await findCashByRef(ref_type, ref_id, session);
+  await removeCashEntries(existing, session);
+
+  const cashIn = toMoney(cash_in);
+  const cashOut = toMoney(cash_out);
+
+  if (cashIn === 0 && cashOut === 0) {
+    return null;
+  }
+
+  return postCash({
+    date,
+    description,
+    cash_in: cashIn,
+    cash_out: cashOut,
+    ref_type,
+    ref_id,
+    session,
+  });
+};
+
+const replaceBankPayment = async ({
+  ref_type,
+  ref_id,
+  bank_account_id,
+  date,
+  description,
+  deposit = 0,
+  withdrawal = 0,
+  session,
+}) => {
+  const existing = await findBankByRef(ref_type, ref_id, session);
+  await removeBankEntries(existing, session);
+
+  const depositAmount = toMoney(deposit);
+  const withdrawalAmount = toMoney(withdrawal);
+
+  if (depositAmount === 0 && withdrawalAmount === 0) {
+    return null;
+  }
+
+  return postBank({
+    bank_account_id,
+    date,
+    description,
+    deposit: depositAmount,
+    withdrawal: withdrawalAmount,
+    ref_type,
+    ref_id,
+    session,
+  });
+};
+
+const replaceDailyBookEntry = async ({
+  ref_type,
+  ref_id,
+  date,
+  description,
+  debit = 0,
+  credit = 0,
+  session,
+}) => {
+  const existing = await findDailyBookByRef(ref_type, ref_id, session);
+  await removeDailyBookEntries(existing, session);
+
+  const debitAmount = toMoney(debit);
+  const creditAmount = toMoney(credit);
+
+  if (debitAmount === 0 && creditAmount === 0) {
+    return null;
+  }
+
+  return postDailyBook({
+    date,
+    description,
+    debit: debitAmount,
+    credit: creditAmount,
+    ref_type,
+    ref_id,
+    session,
+  });
+};
+
+const recalculateCustomerLedgerBalances = async (customerId, session) => {
+  const { CustomerLedger } = require("../models");
+  const entries = await CustomerLedger.find({ customer_id: customerId })
+    .sort(sortChronological)
+    .session(session);
+  let balance = 0;
+
+  for (const entry of entries) {
+    balance = subtractMoney(addMoney(balance, entry.debit), entry.credit);
+
+    if (entry.balance !== balance) {
+      entry.balance = balance;
+      await entry.save({ session });
+    }
+  }
+
+  return balance;
+};
+
+const recalculateSupplierLedgerBalances = async (supplierId, session) => {
+  const { SupplierLedger } = require("../models");
+  const entries = await SupplierLedger.find({ supplier_id: supplierId })
+    .sort(sortChronological)
+    .session(session);
+  let balance = 0;
+
+  for (const entry of entries) {
+    balance = subtractMoney(addMoney(balance, entry.credit), entry.debit);
+
+    if (entry.balance !== balance) {
+      entry.balance = balance;
+      await entry.save({ session });
+    }
+  }
+
+  return balance;
+};
+
 module.exports = {
   getLatestCashBalance,
   postCash,
@@ -236,4 +468,18 @@ module.exports = {
   postDailyBook,
   normalizePayments,
   postPayments,
+  recalculateCashBalances,
+  recalculateBankBalances,
+  recalculateDailyBookBalances,
+  recalculateCustomerLedgerBalances,
+  recalculateSupplierLedgerBalances,
+  findCashByRef,
+  findBankByRef,
+  findDailyBookByRef,
+  removeCashEntries,
+  removeBankEntries,
+  removeDailyBookEntries,
+  replaceCashPayment,
+  replaceBankPayment,
+  replaceDailyBookEntry,
 };
