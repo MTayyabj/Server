@@ -60,6 +60,34 @@ const updateBankAccountStatus = asyncHandler(async (req, res) => {
   });
 });
 
+const updateBankAccount = asyncHandler(async (req, res) => {
+  const data = await cashBankService.updateBankAccount(req.params.id, req.body);
+  return sendSuccess(res, {
+    message: "Bank account updated successfully",
+    data,
+  });
+});
+
+const updateManualCashEntry = asyncHandler(async (req, res) => {
+  const data = await cashBankService.updateManualCashEntry(req.params.id, req.body);
+  return sendSuccess(res, {
+    message: "Cash book entry updated successfully",
+    data,
+  });
+});
+
+const updateBankTransaction = asyncHandler(async (req, res) => {
+  const data = await cashBankService.updateBankTransaction(
+    req.params.id,
+    req.params.transactionId,
+    req.body
+  );
+  return sendSuccess(res, {
+    message: "Bank transaction updated successfully",
+    data,
+  });
+});
+
 const transfer = asyncHandler(async (req, res) => {
   const data = await cashBankService.transfer(req.body);
   return sendSuccess(res, {
@@ -81,10 +109,13 @@ const bankLedger = asyncHandler(async (req, res) => {
 module.exports = {
   listCashBook,
   createManualCashEntry,
+  updateManualCashEntry,
   listBankAccounts,
   createBankAccount,
+  updateBankAccount,
   deleteBankAccount,
   updateBankAccountStatus,
   transfer,
   bankLedger,
+  updateBankTransaction,
 };
