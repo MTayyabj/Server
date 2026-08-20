@@ -17,11 +17,13 @@ router
   .get(validate(expenseValidators.list), expenseController.list)
   .post(authorize(...staff), validate(expenseValidators.create), expenseController.create);
 
-router.delete(
-  "/:id",
-  authorize(...staff),
-  validate(expenseValidators.deleteExpense),
-  expenseController.deleteExpense
-);
+router
+  .route("/:id")
+  .put(authorize(...staff), validate(expenseValidators.update), expenseController.update)
+  .delete(
+    authorize(...staff),
+    validate(expenseValidators.deleteExpense),
+    expenseController.deleteExpense
+  );
 
 module.exports = router;
